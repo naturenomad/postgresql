@@ -1,5 +1,5 @@
 # postgresql
-Some postgresql exercise to stay current
+Some postgresql exercise to stay current.
 
-Exercises taken from pgexercises.com
+Exercises taken from pgexercises.com.
 
