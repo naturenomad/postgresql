@@ -108,9 +108,9 @@ left join cd.members m
 on b.memid=m.memid
 where date(b.starttime) = '2012-09-14'
 and (
-			(m.memid = 0 and b.slots*f.guestcost > 30) or
-			(m.memid != 0 and b.slots*f.membercost > 30)
-		)
+    (m.memid = 0 and b.slots*f.guestcost > 30) or
+    (m.memid != 0 and b.slots*f.membercost > 30)
+)
 order by cost desc;
 
 
