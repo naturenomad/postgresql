@@ -153,3 +153,4 @@ where m.firstname not like '%GUEST%'
 and date(b.starttime)='2012-09-14')) as everyone
 where cost > 30
 order by cost desc;
+
