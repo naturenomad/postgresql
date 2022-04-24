@@ -563,3 +563,4 @@ order by date;
 
 -- There is an argument for creating a view for daily revenue data as this is a commonly used
 -- set of figures.
+
