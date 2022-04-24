@@ -396,3 +396,170 @@ group by name) r
 where rank <=3
 order by rank, name;
 
+
+--------------------------------
+-- Classify facilities by value
+-- Classify facilities into equally sized groups of high, average, and low 
+-- based on their revenue. Order by classification and facility name. 
+
+-- Start with facilities and their revenues :
+select f.name as name, sum (
+case when b.memid=0 then b.slots*f.guestcost
+else b.slots*f.membercost end) as revenue
+from cd.facilities f
+inner join cd.bookings b
+on f.facid=b.facid
+group by name
+order by revenue;
+
+-- Then building on this :
+select name, revenue from
+(select name, income, 
+(select count(name) from cd.facilities) as count,
+case 
+when cast(row_number() over() as decimal)/(select count(name) from cd.facilities) <= cast(1 as decimal)/3 then 'low'
+when cast(row_number() over() as decimal)/(select count(name) from cd.facilities) <= cast(2 as decimal)/3 then 'average'
+else 'high' end as revenue
+from
+(select f.name as name, sum (
+case when b.memid=0 then b.slots*f.guestcost
+else b.slots*f.membercost end) as income
+from cd.facilities f
+inner join cd.bookings b
+on f.facid=b.facid
+group by name
+order by income) r) r1
+order by case revenue when 'high' then 1 when 'average' then 2 when 'low' then 3 
+end, name;
+-- It's messy, a stepwise series of refinements is made to get the results wanted.
+
+-- From the Discussion, this can be simplified using the NTILE window function. 
+-- NTILE groups values into a passed-in number of groups, as evenly as possible. 
+-- It outputs a number from 1->number of groups. 
+-- We can then use a CASE statement to turn that number into a label
+select name, case when class=1 then 'high'
+		when class=2 then 'average'
+		else 'low'
+		end revenue
+	from (
+		select facs.name as name, ntile(3) over (order by sum(case
+				when memid = 0 then slots * facs.guestcost
+				else slots * membercost
+			end) desc) as class
+		from cd.bookings bks
+		inner join cd.facilities facs
+			on bks.facid = facs.facid
+		group by facs.name
+	) as subq
+order by class, name;
+
+
+------------------------------------------------
+-- Calculate the payback time for each facility
+-- Based on the 3 complete months of data so far, calculate the amount of time each 
+-- facility will take to repay its cost of ownership. 
+-- Remember to take into account ongoing monthly maintenance. 
+-- Output facility name and payback time in months, order by facility name. 
+-- Don't worry about differences in month lengths
+-- HINT : Hint
+-- There's no need to use window functions to solve this problem. Hard-code the number of 
+-- months for an easy time, calculate them for a tougher one. 
+
+-- Including subquery while calculating :
+select name,
+initialoutlay/(monthlyincome-monthlymaintenance) as months
+from
+(select f.facid, f.name, f.initialoutlay, f.monthlymaintenance,
+sum(case when b.memid = 0 then slots*guestcost 
+    else slots*membercost end)/3 as monthlyincome
+from cd.facilities f
+inner join cd.bookings b
+on f.facid=b.facid
+where date_part('year', b.starttime)='2012'
+and date_part('month', b.starttime) between 7 and 9
+group by f.facid
+order by f.name) base;
+
+-- Can simplify this to remove subquery:
+select f.name, 
+f.initialoutlay/((sum(case when b.memid = 0 then slots*guestcost 
+    else slots*membercost end)/3)-monthlymaintenance) as months
+from cd.facilities f
+inner join cd.bookings b
+on f.facid=b.facid
+where date_part('year', b.starttime)='2012'
+and date_part('month', b.starttime) between 7 and 9
+group by f.facid
+order by f.name;
+
+-- The above doesn't deal with a loss-making scenario.
+
+
+-----------------------------------------------
+-- Calculate a rolling average of total revenue
+-- For each day in August 2012, calculate a rolling average of total revenue over the 
+-- previous 15 days. 
+-- Output should contain date and revenue columns, sorted by the date. 
+-- Remember to account for the possibility of a day having zero revenue.
+-- Hint : You'll need to generate a list of days: check out GENERATE_SERIES for that. 
+-- You can then solve this problem using aggregate functions or window functions. 
+
+-- generate_series allows you to generate a set of data starting at some point, 
+-- ending at another point, and optionally set the incrementing value. 
+-- generate_series works on two datatypes:
+--     integers
+--     timestamps
+
+-- Propose left joining the two kinds of data :
+
+-- Generating the time series days for the lefthand table :
+select series as seriesdate, series - interval '14 days' as startdate 
+from generate_series(
+'2012-08-01',
+'2012-08-31', 
+interval'1 day') series;
+
+-- Generating all daily total revenues for the righthand table :
+select date(b.starttime) as date,  
+sum(case when b.memid=0 then b.slots*f.guestcost
+else b.slots*f.membercost end) as revenue
+from cd.bookings b
+inner join cd.facilities f
+on b.facid=f.facid
+group by date(b.starttime)
+order by date;
+
+-- Combining these to get average for previous 15 days for each time series day :
+select date(s.seriesdate) as date, sum(t.revenue)/15 as revenue from
+(
+select series as seriesdate, series - interval '14 days' as startdate 
+from generate_series(
+'2012-08-01',
+'2012-08-31', 
+interval'1 day') series
+) s
+left join 
+(
+select date(b.starttime) as date,  
+sum(case when b.memid=0 then b.slots*f.guestcost
+else b.slots*f.membercost end) as revenue
+from cd.bookings b
+inner join cd.facilities f
+on b.facid=f.facid
+group by date(b.starttime)
+order by date
+) t
+on t.date between s.startdate and s.seriesdate
+group by s.seriesdate
+order by date;
+
+-- The discussion solves this slightly differently, without using left join, but not more 
+-- simply to read. Performance differences not known or tested, potentially better using
+-- correlated subqueries :
+
+-- A correlated subquery uses values from the outer query. 
+-- This means that it gets executed once for each result row in the outer query. 
+-- This is in contrast to an uncorrelated subquery, which only has to be executed once.
+
+-- There is an argument for creating a view for daily revenue data as this is a commonly used
+-- set of figures.
